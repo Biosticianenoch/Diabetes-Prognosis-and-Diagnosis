@@ -1,5 +1,7 @@
 **Diabetes Prognosis and Diagnosis**
+
 📌 Project Summary
+
 This project focuses on building a robust and interpretable machine learning pipeline for predicting the likelihood of diabetes in patients using clinical and diagnostic data. By combining statistical analysis, machine learning algorithms, and data visualization, the project aims to support healthcare professionals in making informed, data-driven decisions.
 
 **🎯 Objectives**
