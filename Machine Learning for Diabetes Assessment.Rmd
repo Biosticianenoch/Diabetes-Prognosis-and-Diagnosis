@@ -1,0 +1,436 @@
+---
+title: "MACHINE LEARNING FOR DIABETES ASSESSMENT"
+author: "Enock Bereka"
+date: "2025-05-15"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Loading necessary libraries
+```{r warning=FALSE, message=FALSE}
+library(tidyverse)
+library(caTools)
+library(report)
+library(ggcorrplot)
+library(pROC)
+library(caret)
+
+setwd("C:/Users/DELL/Desktop/Diabetes/")
+```
+
+## Loading the dataset
+```{r warning=FALSE, message=FALSE}
+diabetes <- read_csv("diabetes-1.csv")
+```
+
+## Inspecting the dataset
+## Structure of the dataset
+```{r warning=FALSE, message=FALSE}
+glimpse(diabetes)
+```
+
+## Description of the dataset
+```{r warning=FALSE, message=FALSE}
+report(diabetes)
+```
+
+## Checking for missing values
+```{r warning=FALSE, message=FALSE}
+anyNA(diabetes)
+```
+
+## Checking for duplicates
+```{r warning=FALSE, message=FALSE}
+sum(duplicated(diabetes))
+```
+
+## Data Preprocessing
+## imputing the value computed as 0 in the observations(rows)
+## converting zero values in glucose to missing values
+```{r warning=FALSE, message=FALSE}
+diabetes$Glucose[diabetes$Glucose == 0] <- NA #5 NA's
+
+#imputing with the median
+diabetes$Glucose[is.na(diabetes$Glucose)] <- 
+  median(diabetes$Glucose, na.rm = TRUE)
+```
+
+## conversion for bloodpressure as blooodpresssure can not be 0
+```{r warning=FALSE, message=FALSE}
+diabetes$BloodPressure[diabetes$BloodPressure == 0] <- NA #35 NA's
+
+#convert BP to numeric
+diabetes$BloodPressure <- as.numeric(diabetes$BloodPressure)
+
+#imputing
+diabetes$BloodPressure[is.na(diabetes$BloodPressure)] <- 
+  median(diabetes$BloodPressure, na.rm = TRUE)
+```
+
+## for skinThickness ~ skinthickness can not be zero
+```{r warning=FALSE, message=FALSE}
+diabetes$SkinThickness[diabetes$SkinThickness == 0] <- NA #227
+
+#imputing with median
+diabetes$SkinThickness[is.na(diabetes$SkinThickness)] <-
+  median(diabetes$SkinThickness, na.rm = TRUE)
+```
+
+##for insluin (2 hour serum insulin)
+```{r warning=FALSE, message=FALSE}
+diabetes$Insulin[diabetes$Insulin == 0] <- NA # 374 NA's
+
+#imputing
+diabetes$Insulin[is.na(diabetes$Insulin)] <- 
+  median(diabetes$Insulin, na.rm = TRUE)
+```
+
+## Encoding the study outcome
+```{r warning=FALSE, message=FALSE}
+diabetes$Outcome = ifelse(diabetes$Outcome==1, "Yes", "No")
+diabetes$Outcome = as.factor(diabetes$Outcome)
+```
+
+## Correlation Analysis
+```{r warning=FALSE, message=FALSE}
+cor = diabetes %>% select(-Outcome) %>% cor()
+```
+
+## Which variable fall above the cut off
+```{r warning=FALSE, message=FALSE}
+findCorrelation(cor, cutoff=0.75)
+```
+
+## Feature importance analysis
+```{r warning=FALSE, message=FALSE}
+library(Boruta)
+boruta_results <- Boruta(Outcome~., diabetes)
+```
+
+```{r warning=FALSE, message=FALSE}
+print(boruta_results)
+```
+
+## Check only confirmed attributes
+```{r warning=FALSE, message=FALSE}
+getSelectedAttributes(boruta_results, withTentative = F)
+diabetes$BloodPressure = NULL
+```
+
+## Visualize the boruta rNULL## Visualize the boruta results
+```{r warning=FALSE, message=FALSE}
+plot(boruta_results)
+```
+
+## Handling the class imbalance 
+```{r warning=FALSE, message=FALSE}
+table(diabetes$Outcome)
+```
+
+## In our case we will be undersampling the majority class.
+## Create a balanced dataset by undersampling the majority class
+```{r warning=FALSE, message=FALSE}
+diabetes <- downSample(x = diabetes[,-8], y = diabetes$Outcome)
+```
+
+## checking if the dataset is balanced 
+```{r warning=FALSE, message=FALSE}
+table(diabetes$Class)
+```
+
+## Split our dataset into training and testing sets.
+```{r warning=FALSE, message=FALSE}
+set.seed(42)
+split <- sample.split(diabetes$Class, SplitRatio = 0.8)
+training <- subset(diabetes, split == "TRUE")
+testing <- subset(diabetes, split == "FALSE")
+```
+
+## Prepare a training scheme
+```{r warning=FALSE, message=FALSE}
+fitControl <- trainControl(method = "repeatedcv",
+                           number = 10,
+                           repeats = 3,
+                           classProbs = TRUE,
+                           summaryFunction = twoClassSummary)
+```
+
+## Logistic Regression
+```{r warning=FALSE, message=FALSE}
+logistic_fit <- train(Class~.,
+                      training,
+                      method="glm",
+                      metric="ROC",
+                      preProcess = c("center", "scale"),
+                      trControl=fitControl)
+```
+
+## trainControl() sets up how the model will be trained and validated.
+## method = "repeatedcv": Use repeated cross-validation for model evaluation.
+## number = 10: Use 10-fold cross-validation (the data is split into 10 parts).
+## repeats = 3: Repeat the cross-validation 3 times for better reliability.
+## classProbs = TRUE: Calculate class probabilities (important for ROC metrics).
+## summaryFunction = twoClassSummary: Use ROC, Sensitivity, and Specificity as evaluation metrics for binary classification.
+
+## Make predictions
+```{r warning=FALSE, message=FALSE}
+logistic_pred <- predict(logistic_fit, testing)
+cm_glm <- confusionMatrix(logistic_pred, testing$Class, positive="Yes")
+cm_glm
+```
+
+## ROC Curve
+```{r warning=FALSE, message=FALSE}
+pred_prob_logistic <- predict(logistic_fit, testing, type="prob")
+roc_glm <- roc(testing$Class, pred_prob_logistic$Yes)
+roc_glm
+plot(roc_glm, col = "blue", print.auc = T, main = "ROC Curve - Logistic Regression")
+```
+
+#RANDOM FOREST MODEL
+```{r warning=FALSE, message=FALSE}
+model_rf <- train(Class~.,
+                  training,
+                  method="rf",
+                  metric="ROC",
+                  tuneLength=20,
+                  preProcess = c('center', 'scale'),
+                  trControl=fitControl)
+
+```
+
+# Making predictions
+```{r warning=FALSE, message=FALSE}
+pred_rf <- predict(model_rf, testing)
+cm_rf <- confusionMatrix(pred_rf, testing$Class, positive="Yes")
+cm_rf
+```
+
+# Roc Curve
+```{r warning=FALSE, message=FALSE}
+pred_prob_rf <- predict(model_rf, testing, type="prob")
+roc_rf <- roc(testing$Class, pred_prob_rf$Yes)
+roc_rf
+```
+
+
+## XG Boost
+```{r warning=FALSE, message=FALSE}
+xgb_grid_1 = expand.grid(
+  nrounds = 100,
+  eta = 0.3,
+  max_depth = 6,
+  gamma = 1,
+  colsample_bytree = 0.8,
+  min_child_weight = 1,
+  subsample = 0.8
+)
+model_xgbTree <- train(Class~.,
+                       training,
+                       method="xgbTree",
+                       metric="ROC",
+                       tuneGrid=xgb_grid_1,
+                       preProcess = c('center', 'scale'),
+                       trControl=fitControl)
+
+```
+
+## Making Predictions
+```{r warning=FALSE, message=FALSE}
+pred_xgbTree <- predict(model_xgbTree, testing)
+cm_xgbTree <- confusionMatrix(pred_xgbTree, testing$Class, positive="Yes")
+cm_xgbTree
+```
+
+## ROC Curve
+```{r warning=FALSE, message=FALSE}
+pred_prob_xgbTree <- predict(model_xgbTree, testing, type="prob")
+roc_xgbTree <- roc(testing$Class, pred_prob_xgbTree$Yes)
+roc_xgbTree
+```
+
+## KNN
+```{r warning=FALSE, message=FALSE}
+model_knn <- train(Class~.,
+                   training,
+                   method="knn",
+                   metric="ROC",
+                   tuneGrid = expand.grid(.k=c(3:10)),
+                   preProcess = c('center', 'scale'),
+                   trControl=fitControl)
+```
+
+## Making Predictions
+```{r warning=FALSE, message=FALSE}
+pred_knn <- predict(model_knn, testing)
+cm_knn <- confusionMatrix(pred_knn, testing$Class, positive="Yes")
+cm_knn
+```
+
+## ROC curve
+```{r warning=FALSE, message=FALSE}
+pred_prob_knn <- predict(model_knn, testing, type="prob")
+roc_knn <- roc(testing$Class, pred_prob_knn$Yes)
+roc_knn
+```
+
+
+## Decision Trees
+```{r warning=FALSE, message=FALSE}
+model_rpart <- train(Class~.,
+                     training,
+                     method="rpart",
+                     metric="ROC",
+                     tuneLength=20,
+                     preProcess = c('center', 'scale'),
+                     trControl=fitControl)
+
+```
+
+## Making Predictions
+```{r warning=FALSE, message=FALSE}
+pred_rpart <- predict(model_rpart, testing)
+cm_rpart <- confusionMatrix(pred_rpart, testing$Class, positive="Yes")
+cm_rpart
+```
+
+
+## ROC Curve
+```{r warning=FALSE, message=FALSE}
+pred_prob_rpart <- predict(model_rpart, testing, type="prob")
+roc_rpart <- roc(testing$Class, pred_prob_rpart$Yes)
+roc_rpart
+```
+
+## LOGISTIC WITH REGULARIZATION
+```{r warning=FALSE, message=FALSE}
+model_glmnet <- train(Class~.,
+                      training,
+                      method="glmnet",
+                      metric="ROC",
+                      tuneLength=20,
+                      preProcess = c('center', 'scale'),
+                      trControl=fitControl)
+
+```
+
+## Model Predictions
+```{r warning=FALSE, message=FALSE}
+pred_glmnet <- predict(model_glmnet, testing)
+cm_glmnet <- confusionMatrix(pred_glmnet, testing$Class, positive="Yes")
+cm_glmnet
+```
+
+# ROC Curve
+```{r warning=FALSE, message=FALSE}
+pred_prob_glmnet <- predict(model_glmnet, testing, type="prob")
+roc_glmnet <- roc(testing$Class, pred_prob_glmnet$Yes)
+roc_glmnet
+```
+
+## Linear Discriminant Analysis
+```{r warning=FALSE, message=FALSE}
+lda_fit <- train(Class~., 
+                 data = training, method = "lda", 
+                 trControl = fitControl )
+
+```
+
+## Model Predictions
+```{r warning=FALSE, message=FALSE}
+pred_lda <- predict(lda_fit, testing)
+cm_lda <- confusionMatrix(pred_lda, testing$Class, positive="Yes")
+cm_lda
+```
+
+## ROC Curve
+```{r warning=FALSE, message=FALSE}
+pred_prob_lda <- predict(lda_fit, testing, type="prob")
+roc_lda <- roc(testing$Class, pred_prob_lda$Yes)
+roc_lda
+```
+
+
+## Support Vector Machines
+```{r warning=FALSE, message=FALSE}
+svm_fit <- train(Class~., data = training, 
+                 method = "svmRadial", trControl = fitControl)
+
+```
+
+## Model Predictions
+```{r warning=FALSE, message=FALSE}
+pred_svm <- predict(svm_fit, testing)
+cm_svm <- confusionMatrix(pred_lda, testing$Class, positive="Yes")
+cm_svm
+```
+
+## ROC curve
+```{r warning=FALSE, message=FALSE}
+pred_prob_svm <- predict(svm_fit, testing, type="prob")
+roc_svm <- roc(testing$Class, pred_prob_svm$Yes)
+roc_svm
+```
+
+
+## Gradient Boosting Machines
+```{r warning=FALSE, message=FALSE}
+gbm_fit <- train(Class~., data = training, 
+                 method = "gbm", trControl = fitControl)
+```
+
+## Model Predictions
+```{r warning=FALSE, message=FALSE}
+pred_gbm <- predict(gbm_fit, testing)
+cm_gbm <- confusionMatrix(pred_gbm, testing$Class, positive="Yes")
+cm_gbm
+```
+
+
+## ROC Curve
+```{r warning=FALSE, message=FALSE}
+pred_prob_gbm <- predict(gbm_fit, testing, type="prob")
+roc_gbm <- roc(testing$Class, pred_prob_gbm$Yes)
+roc_gbm
+```
+
+
+## Model Comparison based on AUC
+```{r warning=FALSE, message=FALSE}
+model_list <- list(Logistic = logistic_fit, Logistic.Regularised = model_glmnet , 
+                   Decision_Trees = model_rpart, Random.Forest = model_rf, 
+                   XGBOOST=model_xgbTree, KNN = model_knn, SVM = svm_fit, 
+                   LDA = lda_fit, GBM = gbm_fit)
+resamples <- resamples(model_list)
+bwplot(resamples, metric="ROC")
+```
+
+## Model Comparison based on Sensitivity, F1 Score and AUC
+```{r warning=FALSE, message=FALSE}
+results_glm <- c(cm_glm$byClass['Sensitivity'], cm_glm$byClass['F1'], roc_glm$auc)
+results_glmnet <- c(cm_glmnet$byClass['Sensitivity'], cm_glmnet$byClass['F1'], roc_glmnet$auc)
+results_rpart <- c(cm_rpart$byClass['Sensitivity'], cm_rpart$byClass['F1'], roc_rpart$auc)
+results_rf <- c(cm_rf$byClass['Sensitivity'], cm_rf$byClass['F1'], roc_rf$auc)
+results_xgbTree <- c(cm_xgbTree$byClass['Sensitivity'], cm_xgbTree$byClass['F1'], roc_xgbTree$auc)
+results_knn <- c(cm_knn$byClass['Sensitivity'], cm_knn$byClass['F1'], roc_knn$auc)
+results_gbm <- c(cm_gbm$byClass['Sensitivity'], cm_gbm$byClass["F1"], roc_gbm$auc)
+results_svm <- c(cm_svm$byClass['Sensitivity'], cm_svm$byClass["F1"], roc_svm$auc)
+results_lda <- c(cm_lda$byClass['Sensitivity'], cm_lda$byClass["F1"], roc_lda$auc)
+results <- data.frame(rbind(results_glm, results_glmnet, results_rpart, results_rf, 
+                            results_xgbTree, results_knn, results_gbm, results_lda, results_svm))
+names(results) <- c("Sensitivity", "F1", "AUC")
+results
+```
+
+## KNN is our best model
+```{r warning=FALSE, message=FALSE}
+best_model = model_knn
+```
+
+```{r warning=FALSE, message=FALSE}
+saveRDS(best_model, "model.rds")
+```
+
