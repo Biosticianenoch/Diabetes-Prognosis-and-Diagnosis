@@ -1,4 +1,4 @@
-readme_ml_diabetes = """
+
 <div align="center">
 
 # 🩺 Machine Learning for Diabetes Assessment  
