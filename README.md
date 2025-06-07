@@ -1,4 +1,3 @@
-# Compose a visually appealing and intuitive README.md file for the ML diabetes project
 readme_ml_diabetes = """
 <div align="center">
 
